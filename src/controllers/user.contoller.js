@@ -10,9 +10,10 @@ const generateAccessAndRefereshTokens = async(userId) => {
         const accessToken = user.genereateAccessToken()    // these are methods so be sure to add parenthesis
         const refreshToken = user.genereateRefreshToken()
 
+
         // now we need to put refreshToken into the database so the each and every time we dont need to ask the user for his password
         user.refreshToken = refreshToken
-        await user.save({validateBeforeSave: false}) // this will not ask us everything before saving the token to schema , it will just save that one field , database ka operation time leta haii to save laga doo 
+        await user.save({ validateBeforeSave: false  }) // this will not ask us everything before saving the token to schema , it will just save that one field , database ka operation time leta haii to save laga doo 
 
         return {accessToken , refreshToken}
 
@@ -117,7 +118,7 @@ const loginUser = asyncHandler( async (req,res) => {
     
     const {email , username , password} = req.body
 
-    if(!username || !email){
+    if(!(username || email)){
         throw new ApiError(400 , "username or password is required")
     }
 
@@ -150,7 +151,7 @@ const loginUser = asyncHandler( async (req,res) => {
     return res
     .status(200)
     .cookie("accessToken" , accessToken , options)
-    .cookie("refreshToken " , refreshToken , options)
+    .cookie("refreshToken" , refreshToken , options)
     .json(
         new ApiResponse(
             200 , 
