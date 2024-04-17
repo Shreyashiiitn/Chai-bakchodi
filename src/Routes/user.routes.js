@@ -1,6 +1,7 @@
 import { Router } from "express";
-import { registerUser } from "../controllers/user.contoller.js";
-import upload from "../Middlewares/multer.middleware.js"
+import { loginUser, logoutUser, registerUser } from "../controllers/user.contoller.js";
+import { upload } from "../Middlewares/multer.middleware.js"
+import { verifyJWT } from "../Middlewares/auth.middleware.js";
 
 
 const router = Router() ; 
@@ -20,6 +21,12 @@ router.route("/register").post(
     registerUser
     )
 
+router.route("/login").post(loginUser)
+
+
+// secured routes 
+
+router.route("/logout").post(verifyJWT , logoutUser) // this middleware was injected here , this is the only way to inject it in the router 
 
 
 export default router

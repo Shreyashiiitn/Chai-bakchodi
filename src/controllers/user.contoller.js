@@ -4,6 +4,27 @@ import {User} from "../Models/user.model.js"
 import {uploadOnCloudinary} from "../Utils/cloudinary.js"
 import {ApiResponse} from "../Utils/Apiresponse.js"
 
+const generateAccessAndRefereshTokens = async(userId) => {
+    try{
+        const user = await User.findById(userId)
+        const accessToken = user.genereateAccessToken()    // these are methods so be sure to add parenthesis
+        const refreshToken = user.genereateRefreshToken()
+
+        // now we need to put refreshToken into the database so the each and every time we dont need to ask the user for his password
+        user.refreshToken = refreshToken
+        await user.save({validateBeforeSave: false}) // this will not ask us everything before saving the token to schema , it will just save that one field , database ka operation time leta haii to save laga doo 
+
+        return {accessToken , refreshToken}
+
+
+    }
+    catch(error){
+        throw new ApiError(500 , "Something went wrong while generating refresh and access tokens ")
+    }
+    
+}
+
+
 const registerUser = asyncHandler( async (req,res) => {
     // get user details from frontend
     // validation - not empty
@@ -17,7 +38,7 @@ const registerUser = asyncHandler( async (req,res) => {
 
 
     const {fullname , email , username , password }= req.body
-    console.log("email : " , email);
+    // console.log("email : " , email);
 
     // if(fullname === ""){
     //     throw new ApiError(400 , "full name is required")
@@ -29,19 +50,23 @@ const registerUser = asyncHandler( async (req,res) => {
     ){
        throw new ApiError(400 , "All field are required")
     }
-
-    const existedUser = User.findOne({
-        $or: [{username} , {email}]
+    const existedUser = await User.findOne({
+        $or: [{ username } , { email }]
     })
 
+    // console.log("existed user : ", existedUser)
     if(existedUser){
         throw new ApiError(409 , "User with email or username already exist")
     }
-
     // now lets handle images 
     const avatarLocalPath = req.files?.avatar[0]?.path ; 
-    const coverImageLocalPath = req.files?.coverImage[0]?.path ;
+    // const coverImageLocalPath = req.files?.coverImage[0]?.path ;
 
+    let coverImageLocalPath ; 
+    if(req.files && Array.isArray(req.files.coverImage) && req.files.coverImage.length > 0 ){
+        coverImageLocalPath = req.files.coverImage[0].path                                     
+    }
+    
     if(!avatarLocalPath){
         throw new ApiError(400 , "Avatar file is required")
     }
@@ -58,14 +83,14 @@ const registerUser = asyncHandler( async (req,res) => {
     const user = await User.create({
         fullname , 
         avatar: avatar.url , 
-        coverImage: coverImage?.url || "" , 
+        coverImage: coverImage?.url || "", 
         email , 
         password , 
         username: username.toLowerCase()
     })
 
     // check for user creation now 
-    const createdUser = User.findById(user._id).select(
+    const createdUser = await User.findById(user._id).select(
         "-password -refreshToken"  // ye karne se ye ye filed user se select nahii hogii 
     )
 
@@ -73,15 +98,105 @@ const registerUser = asyncHandler( async (req,res) => {
         throw new ApiError(500 , "Something went wrong while registering the user")
     }
 
-
     // Now return the response 
+    const userobject = createdUser.toObject() ; // we have converted this createduser object to plain JS object before sending the response 
     return res.status(201).json(
-        new ApiResponse(200 , createdUser , "User registered Successfully")
+        new ApiResponse(200 , userobject , "User registered Successfully")
     )
-
-
 
 })
 
 
-export {registerUser,}
+const loginUser = asyncHandler( async (req,res) => {
+    // Todos what to do 
+    // username base login or email based login
+    // find the user
+    // password check
+    // access and refreshtoken
+    // send these token in the form of secure cookies 
+    
+    const {email , username , password} = req.body
+
+    if(!username || !email){
+        throw new ApiError(400 , "username or password is required")
+    }
+
+    const user = await User.findOne({
+        $or: [{username} , {email}] // these are mongodb operators
+    })
+
+    if(!user){
+        throw new ApiError(404 , "User does not exist")
+    }
+
+    // check the password now using bckrpt 
+    // also it will take time and the methods we are applying to user are from our system , ie created by us , and the User is the mongodb user so find and so on are mongoose mehtods 
+    const isPasswordValid = await user.isPasswordCorrect(password)
+    if(!isPasswordValid){
+        throw new ApiError(401 , "Invalid user credentials")
+    }
+
+    // Now listen , if everything is correct then create access and refresh tokens 
+    const {accessToken , refreshToken}= await generateAccessAndRefereshTokens(user._id)
+
+    // Now send them in cookies format 
+    const loggedInUser = await User.findById(user._id).select("-password -refreshToken") // this was done so that the server do not send the user his password and refreshtoken
+    
+    const options = {     // by doing this , these cookies will be only modifiable from server side 
+        httpOnly: true , 
+        secure: true 
+    }
+
+    return res
+    .status(200)
+    .cookie("accessToken" , accessToken , options)
+    .cookie("refreshToken " , refreshToken , options)
+    .json(
+        new ApiResponse(
+            200 , 
+            {
+                user: loggedInUser , accessToken , refreshToken
+            },
+            "User logged in Successfully"
+        )
+    )
+
+})
+
+const logoutUser = asyncHandler(async(req,res) => {
+    // we will have to delete cookies 
+    // find the user ,
+    // Note , main question is how we will know the user , yaha to apne pass user ka acces nahii hai , I mean he is not giving us the information  
+    // We will use the concept of middleware
+
+    await User.findByIdAndUpdate(
+        req.user._id,
+        {
+            // use monogdb operator 
+            $set: {
+                refreshToken: undefined
+            }
+        },{
+            new: true
+        }
+    )
+
+    const options = {     // by doing this , these cookies will be only modifiable from server side 
+        httpOnly: true , 
+        secure: true 
+    }
+
+    return res
+    .status(200)
+    .clearCookie("accessToken" , options)
+    .clearCookie("refreshToken" , options)
+    .json( new ApiResponse(200, {} , "User logged Out"))
+
+})
+
+
+export {
+    registerUser,
+    loginUser, 
+    logoutUser,
+}
